@@ -11,6 +11,7 @@ import profileRoutes from './routes/profile.routes.js'
 import requestsRoutes from './routes/requests.routes.js'
 import notificationsRoutes from './routes/notifications.routes.js'
 import migrationRoutes from './routes/migration.routes.js'
+import creditsRoutes from './routes/credits.routes.js'
 
 import pool from './config/db.config.js'
 import { initSocket } from './socket/index.js'
@@ -42,6 +43,7 @@ app.use(`${BASE_URL}/techs`, techRoutes)
 app.use(`${BASE_URL}/profile`, AuthMiddleware, profileRoutes)
 app.use(`${BASE_URL}/requests`, AuthMiddleware, requestsRoutes)
 app.use(`${BASE_URL}/notifications`, AuthMiddleware, notificationsRoutes)
+app.use(`${BASE_URL}/credits`, creditsRoutes)
 app.use(`${BASE_URL}/migrations`, migrationRoutes)
 
 // 🔌 Init Socket.IO

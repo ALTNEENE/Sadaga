@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken"
 import pool from "../config/db.config.js"
 import Redis from "ioredis"
 import { createNotification } from "../controllers/notifications.controllers.js"
+import { deductCredits } from "../controllers/credits.controllers.js"
+import { CREDITS_CONFIG } from "../config/credits.config.js"
 
 const redis = new Redis(process.env.REDIS_URL)
 
@@ -138,6 +140,38 @@ export function initSocket(server) {
 
     socket.on("request:accept", async ({ requestId }) => {
       try {
+        // First, verify the request exists and get details
+        const requestCheck = await pool.query(
+          `SELECT * FROM service_requests 
+           WHERE id = $1 AND technician_id = $2 AND status = 'pending'`,
+          [requestId, socket.user.id]
+        );
+
+        const request = requestCheck.rows[0];
+        if (!request) {
+          socket.emit("error", { message: "الطلب غير موجود أو تم قبوله بالفعل" })
+          return
+        }
+
+        // Deduct credits BEFORE accepting the request
+        const deductionResult = await deductCredits(
+          socket.user.id,
+          CREDITS_CONFIG.CREDITS_PER_REQUEST,
+          requestId
+        );
+
+        if (!deductionResult.success) {
+          // Insufficient credits - notify technician
+          socket.emit("error", {
+            message: deductionResult.message || "رصيد غير كافٍ",
+            code: "INSUFFICIENT_CREDITS"
+          });
+          return;
+        }
+
+        console.log(`Credits deducted for technician ${socket.user.id}. New balance: ${deductionResult.newBalance}`);
+
+        // Now update the request status to accepted
         const { rows } = await pool.query(
           `UPDATE service_requests
            SET status = 'accepted', accepted_at = NOW()
@@ -145,12 +179,6 @@ export function initSocket(server) {
            RETURNING *`,
           [requestId, socket.user.id]
         );
-
-        const request = rows[0];
-        if (!request) {
-          socket.emit("error", { message: "الطلب غير موجود" })
-          return
-        }
 
         // Clear auto-rejection timer
         if (autoRejectionTimers.has(requestId)) {
@@ -162,13 +190,24 @@ export function initSocket(server) {
         socket.activeRequest = requestId;
         socket.join(`request:${requestId}`);
 
-        // Notify all participants
+        const newBalance = deductionResult.newBalance;
+
+        // Notify all participants with credit balance
         io.to(`request:${requestId}`).emit("request:status:update", {
           requestId,
           status: 'accepted',
+          creditBalance: newBalance,
         });
 
-        console.log(`Request ${requestId} accepted by technician ${socket.user.id}`)
+        // Also emit specific success event for the technician with credit info
+        socket.emit("request:accept:success", {
+          requestId,
+          creditBalance: newBalance,
+          creditsDeducted: CREDITS_CONFIG.CREDITS_PER_REQUEST,
+          message: "تم قبول الطلب بنجاح"
+        });
+
+        console.log(`Request ${requestId} accepted by technician ${socket.user.id}. New balance: ${newBalance}`)
       } catch (err) {
         console.error("Error accepting request:", err)
         socket.emit("error", { message: "فشل في قبول الطلب" });
@@ -195,27 +234,74 @@ export function initSocket(server) {
       }
     });
 
-    // Handle request completion
-    // socket.on("request:complete", async ({ requestId }) => {
-    //   try {
-    //     await pool.query(
-    //       `UPDATE service_requests 
-    //        SET status = 'completed', completed_at = NOW()
-    //        WHERE id = $1`,
-    //       [requestId]
-    //     )
+    // Handle request completion - Technician requests completion, client must confirm
+    socket.on("request:complete:request", async ({ requestId }) => {
+      try {
+        // Verify technician is part of this request
+        const { rows } = await pool.query(
+          `SELECT * FROM service_requests 
+           WHERE id = $1 AND technician_id = $2 AND status IN ('accepted', 'on_the_way')`,
+          [requestId, socket.user.id]
+        );
 
-    //     io.to(`request:${requestId}`).emit("request:status:update", {
-    //       requestId,
-    //       status: 'completed'
-    //     })
+        if (!rows[0]) {
+          socket.emit("error", { message: "الطلب غير موجود أو غير مصرح" });
+          return;
+        }
 
-    //     console.log(`Request ${requestId} completed`)
-    //   } catch (error) {
-    //     console.error("Error completing request:", error)
-    //   }
-    // })
+        const request = rows[0];
 
+        // Notify the client that technician is requesting completion
+        io.to(`request:${requestId}`).emit("request:complete:pending", {
+          requestId,
+          technicianId: socket.user.id,
+          technicianName: socket.user.name,
+        });
+
+        console.log(`Technician ${socket.user.id} requested completion for request ${requestId}`);
+      } catch (error) {
+        console.error("Error requesting completion:", error);
+        socket.emit("error", { message: "فشل في طلب إتمام الخدمة" });
+      }
+    });
+
+    // Handle client confirmation of completion
+    socket.on("request:complete:confirm", async ({ requestId }) => {
+      try {
+        // Verify user is the client for this request
+        const { rows } = await pool.query(
+          `SELECT * FROM service_requests 
+           WHERE id = $1 AND user_id = $2 AND status IN ('accepted', 'on_the_way')`,
+          [requestId, socket.user.id]
+        );
+
+        if (!rows[0]) {
+          socket.emit("error", { message: "الطلب غير موجود أو غير مصرح" });
+          return;
+        }
+
+        // Update to completed
+        await pool.query(
+          `UPDATE service_requests
+           SET status = 'completed', completed_at = NOW()
+           WHERE id = $1`,
+          [requestId]
+        );
+
+        // Notify all participants
+        io.to(`request:${requestId}`).emit("request:status:update", {
+          requestId,
+          status: 'completed',
+        });
+
+        console.log(`Request ${requestId} completed after client confirmation`);
+      } catch (error) {
+        console.error("Error confirming completion:", error);
+        socket.emit("error", { message: "فشل في تأكيد إتمام الخدمة" });
+      }
+    });
+
+    // Legacy direct completion (kept for backward compatibility, only for technician)
     socket.on("request:complete", async ({ requestId }) => {
       await pool.query(
         `

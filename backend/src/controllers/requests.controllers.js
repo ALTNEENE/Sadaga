@@ -2,6 +2,8 @@ import pool from "../config/db.config.js";
 import { HTTPSTATUS } from "../config/http.config.js";
 import { asyncHandler } from "../middlewares/asyncHandler.middleware.js";
 import { notifyTechnicianOfNewRequest } from "../socket/index.js";
+import { deductCredits } from "./credits.controllers.js";
+import { CREDITS_CONFIG } from "../config/credits.config.js";
 
 /**
  * Get all requests for a user with optional status filter
@@ -185,9 +187,42 @@ export const updateRequestStatusController = asyncHandler(async (req, res) => {
     }
 
     try {
+        // If technician is accepting the request, check and deduct credits first
+        if (status === 'accepted') {
+            // Verify request exists and get technician ID
+            const requestCheck = await pool.query(
+                `SELECT * FROM service_requests WHERE id = $1`,
+                [requestId]
+            );
+
+            if (!requestCheck.rows[0]) {
+                return res.status(HTTPSTATUS.NOT_FOUND).json({ message: "الطلب غير موجود" });
+            }
+
+            const request = requestCheck.rows[0];
+
+            // Only deduct credits if user is the technician
+            if (request.technician_id === userId || req.user.role === 'TECHNICIAN') {
+                // Deduct credits
+                const deductionResult = await deductCredits(
+                    userId,
+                    CREDITS_CONFIG.CREDITS_PER_REQUEST,
+                    requestId
+                );
+
+                if (!deductionResult.success) {
+                    return res.status(HTTPSTATUS.BAD_REQUEST).json({
+                        message: deductionResult.message || "رصيد غير كافٍ",
+                    });
+                }
+
+                console.log(`Credits deducted for user ${userId}. New balance: ${deductionResult.newBalance}`);
+            }
+        }
+
         // Update appropriate timestamp based on status
         let query;
-        if (status === 'in_progress') {
+        if (status === 'accepted') {
             query = `
                 UPDATE service_requests 
                 SET status = $1, accepted_at = NOW()

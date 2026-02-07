@@ -9,7 +9,6 @@ export const loginController = asyncHandler(
         const { email, password } = req.body
         console.log(email, password)
         try {
-
             if (!email || !password) {
                 return res.status(HTTPSTATUS.BAD_REQUEST).json({ message: "Enter all the fileds" })
             }
@@ -21,13 +20,13 @@ export const loginController = asyncHandler(
                 [email]
             )
 
-            if (!customer.rows[0]) return res.status(HTTPSTATUS.NOT_FOUND).json({ message: "No customer found." })
+            if (!customer.rows[0]) return res.status(HTTPSTATUS.NOT_FOUND).json({ message: "لا يوجد حساب بهذا الايميل" })
 
             // const isMatched = customer?.comparePassword(password)
 
             const isMatched = await compare(password, customer.rows[0].password_hash)
 
-            if (!isMatched) return res.status(HTTPSTATUS.FORBIDDEN).json({ message: "Invalid password" })
+            if (!isMatched) return res.status(HTTPSTATUS.FORBIDDEN).json({ message: "كلمة مرور خاطئه" })
 
             // customer.lastLogin = new Date()
 
@@ -42,7 +41,7 @@ export const loginController = asyncHandler(
         } catch (error) {
             console.log(error)
             return res.status(HTTPSTATUS.INTERNAL_SERVER_ERROR).json({
-                message: "Internal server error"
+                message: "خطأ في السيرفر"
             })
         }
 

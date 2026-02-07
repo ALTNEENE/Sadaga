@@ -8,7 +8,7 @@ export const getTechsByProfssionController = asyncHandler(
         const { profession } = req.params
         try {
             const techs = await pool.query(
-                `SELECT * FROM users WHERE profession = $1`,
+                `SELECT * FROM users WHERE profession = $1 AND credits > 0`,
                 [profession]
             )
 
@@ -71,11 +71,12 @@ export const nearbyTechsController = asyncHandler(
 
             const { rows } = await pool.query(
                 `
-            SELECT u.id, u.name, u.profession
+            SELECT u.id, u.name, u.profession, u.credits
             FROM users u
             JOIN technician_status ts ON ts.technician_id = u.id
             WHERE u.role = 'TECHNICIAN'
             AND ts.is_online = true
+            AND u.credits > 0
             AND u.location IS NOT NULL
             AND ST_DWithin(
                 u.location,

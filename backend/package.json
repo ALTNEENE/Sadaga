@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "nodemon src/server.js"
   },
+  "type": "module",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@google-cloud/vision": "^5.3.4",
     "bcrypt": "^6.0.0",
     "cloudinary": "^2.8.0",
     "cookie-parser": "^1.4.7",
@@ -20,8 +22,11 @@
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.19.2",
+    "multer": "^2.0.2",
     "nodemon": "^3.1.10",
-    "pg": "^8.16.3",
-    "socket.io": "^4.8.3"
+    "pg": "^8.18.0",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.3",
+    "tesseract.js": "^7.0.0"
   }
 }

@@ -11,7 +11,7 @@ export const getProfileController = asyncHandler(async (req, res) => {
 
     try {
         const result = await pool.query(
-            `SELECT id, name, email, phone, profession, role, address, balance, rating, created_at
+            `SELECT id, name, email, phone, profession, role, address, balance, rating, credits, created_at
              FROM users WHERE id = $1`,
             [userId]
         );
